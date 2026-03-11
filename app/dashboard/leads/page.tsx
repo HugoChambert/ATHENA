@@ -1,14 +1,37 @@
 import { createClient } from '@/lib/supabase/server'
 import { Users, Mail, Phone, Building, DollarSign } from 'lucide-react'
 import { format } from 'date-fns'
+import Link from 'next/link'
 
-async function getLeads(userId: string) {
+type PipelineStage = 'new_lead' | 'contacted' | 'quote_sent' | 'measurement_scheduled' | 'installation_scheduled' | 'completed' | 'lost'
+
+const STAGE_LABELS: Record<PipelineStage, string> = {
+  new_lead: 'New Lead',
+  contacted: 'Contacted',
+  quote_sent: 'Quote Sent',
+  measurement_scheduled: 'Measurement Scheduled',
+  installation_scheduled: 'Installation Scheduled',
+  completed: 'Completed',
+  lost: 'Lost'
+}
+
+const STAGE_COLORS: Record<PipelineStage, string> = {
+  new_lead: 'bg-blue-100 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400',
+  contacted: 'bg-purple-100 dark:bg-purple-900/20 text-purple-700 dark:text-purple-400',
+  quote_sent: 'bg-yellow-100 dark:bg-yellow-900/20 text-yellow-700 dark:text-yellow-400',
+  measurement_scheduled: 'bg-orange-100 dark:bg-orange-900/20 text-orange-700 dark:text-orange-400',
+  installation_scheduled: 'bg-teal-100 dark:bg-teal-900/20 text-teal-700 dark:text-teal-400',
+  completed: 'bg-green-100 dark:bg-green-900/20 text-green-700 dark:text-green-400',
+  lost: 'bg-red-100 dark:bg-red-900/20 text-red-700 dark:text-red-400'
+}
+
+async function getLeads(companyId: string) {
   const supabase = await createClient()
 
   const { data: leads } = await supabase
     .from('leads')
     .select('*')
-    .eq('user_id', userId)
+    .eq('company_id', companyId)
     .order('created_at', { ascending: false })
 
   return leads || []
@@ -22,10 +45,39 @@ export default async function LeadsPage() {
     return null
   }
 
-  const leads = await getLeads(user.id)
+  const { data: memberData } = await supabase
+    .from('company_members')
+    .select('company_id')
+    .eq('user_id', user.id)
+    .single()
 
-  const totalValue = leads.reduce((sum, lead) => sum + Number(lead.value || 0), 0)
-  const qualifiedLeads = leads.filter(l => l.status === 'qualified' || l.status === 'proposal')
+  if (!memberData) {
+    return null
+  }
+
+  const leads = await getLeads(memberData.company_id)
+
+  const totalValue = leads.reduce((sum, lead) => sum + Number(lead.lead_value || 0), 0)
+  const activeLeads = leads.filter(l => l.pipeline_stage !== 'completed' && l.pipeline_stage !== 'lost')
+
+  interface LeadData {
+    id: string
+    name: string
+    company_name: string
+    email: string
+    phone: string
+    address: string
+    pipeline_stage: PipelineStage
+    lead_value: number
+    created_at: string
+  }
+
+  const leadsByStage = leads.reduce((acc, lead) => {
+    const stage = lead.pipeline_stage as PipelineStage
+    if (!acc[stage]) acc[stage] = []
+    acc[stage].push(lead)
+    return acc
+  }, {} as Record<PipelineStage, LeadData[]>)
 
   return (
     <div className="space-y-6">
@@ -71,9 +123,56 @@ export default async function LeadsPage() {
               <Users className="h-5 w-5 text-amber-600 dark:text-amber-400" />
             </div>
             <div>
-              <div className="text-2xl font-bold text-slate-900 dark:text-white">{qualifiedLeads.length}</div>
-              <div className="text-sm text-slate-600 dark:text-slate-400">Qualified</div>
+              <div className="text-2xl font-bold text-slate-900 dark:text-white">{activeLeads.length}</div>
+              <div className="text-sm text-slate-600 dark:text-slate-400">Active Leads</div>
             </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700">
+        <div className="p-6 border-b border-slate-200 dark:border-slate-700">
+          <h2 className="text-lg font-semibold text-slate-900 dark:text-white">Pipeline Overview</h2>
+        </div>
+
+        <div className="p-6">
+          <div className="grid grid-cols-1 lg:grid-cols-7 gap-4">
+            {Object.entries(STAGE_LABELS).map(([stage, label]) => {
+              const stageLeads = leadsByStage[stage as PipelineStage] || []
+              return (
+                <div key={stage} className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-sm font-medium text-slate-700 dark:text-slate-300">{label}</h3>
+                    <span className="text-xs text-slate-500 dark:text-slate-400">
+                      {stageLeads.length}
+                    </span>
+                  </div>
+                  <div className="space-y-2">
+                    {stageLeads.slice(0, 3).map((lead: LeadData) => (
+                      <Link
+                        key={lead.id}
+                        href={`/dashboard/leads/${lead.id}`}
+                        className={`block p-3 rounded-lg border-2 border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600 transition-colors`}
+                      >
+                        <p className="text-sm font-medium text-slate-900 dark:text-white truncate">
+                          {lead.name}
+                        </p>
+                        {lead.lead_value && (
+                          <p className="text-xs text-green-600 dark:text-green-400 mt-1">
+                            ${Number(lead.lead_value).toLocaleString()}
+                          </p>
+                        )}
+                      </Link>
+                    ))}
+                    {stageLeads.length > 3 && (
+                      <p className="text-xs text-slate-500 dark:text-slate-400 text-center">
+                        +{stageLeads.length - 3} more
+                      </p>
+                    )}
+                  </div>
+                </div>
+              )
+            })}
           </div>
         </div>
       </div>
@@ -86,7 +185,11 @@ export default async function LeadsPage() {
         {leads.length > 0 ? (
           <div className="divide-y divide-slate-200 dark:divide-slate-700">
             {leads.map((lead) => (
-              <div key={lead.id} className="p-6 hover:bg-slate-50 dark:hover:bg-slate-900 transition-colors">
+              <Link
+                key={lead.id}
+                href={`/dashboard/leads/${lead.id}`}
+                className="block p-6 hover:bg-slate-50 dark:hover:bg-slate-900 transition-colors"
+              >
                 <div className="flex items-start justify-between">
                   <div className="flex-1">
                     <div className="flex items-center gap-3 mb-3">
@@ -117,34 +220,19 @@ export default async function LeadsPage() {
                             {lead.email}
                           </div>
                         )}
-                        {lead.company && (
+                        {lead.company_name && (
                           <div className="flex items-center gap-1">
                             <Building className="h-4 w-4" />
-                            {lead.company}
+                            {lead.company_name}
                           </div>
                         )}
                       </div>
 
-                      {lead.notes && (
-                        <p className="text-sm text-slate-700 dark:text-slate-300 mt-2">
-                          {lead.notes}
-                        </p>
-                      )}
-
-                      {lead.value && Number(lead.value) > 0 && (
+                      {lead.lead_value && Number(lead.lead_value) > 0 && (
                         <div className="flex items-center gap-2 mt-2">
                           <span className="text-xs text-slate-500 dark:text-slate-400">Value:</span>
                           <span className="text-sm font-medium text-green-600 dark:text-green-400">
-                            ${Number(lead.value).toLocaleString()}
-                          </span>
-                        </div>
-                      )}
-
-                      {lead.source && (
-                        <div className="flex items-center gap-2 mt-1">
-                          <span className="text-xs text-slate-500 dark:text-slate-400">Source:</span>
-                          <span className="text-xs text-slate-600 dark:text-slate-400">
-                            {lead.source}
+                            ${Number(lead.lead_value).toLocaleString()}
                           </span>
                         </div>
                       )}
@@ -152,17 +240,12 @@ export default async function LeadsPage() {
                   </div>
 
                   <span className={`px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap ${
-                    lead.status === 'won' ? 'bg-green-100 dark:bg-green-900/20 text-green-700 dark:text-green-400' :
-                    lead.status === 'lost' ? 'bg-red-100 dark:bg-red-900/20 text-red-700 dark:text-red-400' :
-                    lead.status === 'qualified' ? 'bg-blue-100 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400' :
-                    lead.status === 'proposal' ? 'bg-purple-100 dark:bg-purple-900/20 text-purple-700 dark:text-purple-400' :
-                    lead.status === 'contacted' ? 'bg-amber-100 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400' :
-                    'bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300'
+                    STAGE_COLORS[lead.pipeline_stage as PipelineStage]
                   }`}>
-                    {lead.status}
+                    {STAGE_LABELS[lead.pipeline_stage as PipelineStage]}
                   </span>
                 </div>
-              </div>
+              </Link>
             ))}
           </div>
         ) : (
