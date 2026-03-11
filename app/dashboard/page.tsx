@@ -1,41 +1,60 @@
 import { createClient } from '@/lib/supabase/server'
-import { Phone, Users, TrendingUp, Calendar, PhoneIncoming, PhoneMissed, Clock } from 'lucide-react'
+import { Phone, Users, TrendingUp, Calendar, PhoneIncoming, PhoneMissed, Clock, DollarSign } from 'lucide-react'
 
-async function getDashboardStats(userId: string) {
+async function getDashboardStats(companyId: string) {
   const supabase = await createClient()
 
-  const [callsResult, leadsResult, appointmentsResult] = await Promise.all([
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+
+  const [callsTodayResult, callsResult, leadsResult, appointmentsResult] = await Promise.all([
     supabase
       .from('calls')
       .select('*', { count: 'exact' })
-      .eq('user_id', userId)
+      .eq('company_id', companyId)
+      .gte('call_date', today.toISOString()),
+    supabase
+      .from('calls')
+      .select('*', { count: 'exact' })
+      .eq('company_id', companyId)
       .gte('call_date', new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()),
     supabase
       .from('leads')
       .select('*', { count: 'exact' })
-      .eq('user_id', userId),
+      .eq('company_id', companyId),
     supabase
       .from('appointments')
       .select('*', { count: 'exact' })
-      .eq('user_id', userId)
+      .eq('company_id', companyId)
       .eq('status', 'scheduled')
       .gte('start_time', new Date().toISOString()),
   ])
 
+  const callsToday = callsTodayResult.count || 0
   const totalCalls = callsResult.count || 0
   const totalLeads = leadsResult.count || 0
   const upcomingAppointments = appointmentsResult.count || 0
 
+  const missedCallsToday = callsTodayResult.data?.filter(c => c.status === 'missed').length || 0
   const answeredCalls = callsResult.data?.filter(c => c.status === 'answered').length || 0
   const missedCalls = callsResult.data?.filter(c => c.status === 'missed').length || 0
   const avgDuration = callsResult.data && callsResult.data.length > 0
     ? Math.round(callsResult.data.reduce((acc, c) => acc + (c.duration || 0), 0) / callsResult.data.length)
     : 0
 
+  const newLeads = leadsResult.data?.filter(l => l.status === 'new').length || 0
   const qualifiedLeads = leadsResult.data?.filter(l => l.status === 'qualified' || l.status === 'proposal').length || 0
   const conversionRate = totalCalls > 0 ? Math.round((totalLeads / totalCalls) * 100) : 0
 
+  const pipelineValue = leadsResult.data
+    ?.filter(l => ['qualified', 'proposal'].includes(l.status))
+    .reduce((sum, l) => sum + Number(l.value || 0), 0) || 0
+
   return {
+    callsToday,
+    missedCallsToday,
+    newLeads,
+    pipelineValue,
     totalCalls,
     totalLeads,
     upcomingAppointments,
@@ -57,7 +76,17 @@ export default async function DashboardPage() {
     return null
   }
 
-  const stats = await getDashboardStats(user.id)
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('company_id')
+    .eq('id', user.id)
+    .single()
+
+  if (!profile?.company_id) {
+    return null
+  }
+
+  const stats = await getDashboardStats(profile.company_id)
 
   return (
     <div className="space-y-8">
@@ -70,30 +99,28 @@ export default async function DashboardPage() {
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <StatCard
-          title="Total Calls (30d)"
-          value={stats.totalCalls}
+          title="Calls Today"
+          value={stats.callsToday}
           icon={Phone}
-          trend="+12%"
-          trendUp
+          subtitle="Incoming calls"
         />
         <StatCard
-          title="Total Leads"
-          value={stats.totalLeads}
+          title="New Leads"
+          value={stats.newLeads}
           icon={Users}
-          trend="+8%"
-          trendUp
+          subtitle="This month"
         />
         <StatCard
-          title="Conversion Rate"
-          value={`${stats.conversionRate}%`}
-          icon={TrendingUp}
-          trend="+5%"
-          trendUp
+          title="Missed Calls"
+          value={stats.missedCallsToday}
+          icon={PhoneMissed}
+          subtitle="Today"
         />
         <StatCard
-          title="Upcoming Appointments"
-          value={stats.upcomingAppointments}
-          icon={Calendar}
+          title="Revenue Pipeline"
+          value={`$${stats.pipelineValue.toLocaleString()}`}
+          icon={DollarSign}
+          subtitle="Qualified leads"
         />
       </div>
 
@@ -200,14 +227,12 @@ function StatCard({
   title,
   value,
   icon: Icon,
-  trend,
-  trendUp,
+  subtitle,
 }: {
   title: string
   value: string | number
   icon: any
-  trend?: string
-  trendUp?: boolean
+  subtitle?: string
 }) {
   return (
     <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 p-6">
@@ -215,14 +240,12 @@ function StatCard({
         <div className="p-2 bg-blue-100 dark:bg-blue-900/20 rounded-lg">
           <Icon className="h-6 w-6 text-blue-600 dark:text-blue-400" />
         </div>
-        {trend && (
-          <span className={`text-sm font-medium ${trendUp ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
-            {trend}
-          </span>
-        )}
       </div>
       <div className="text-2xl font-bold text-slate-900 dark:text-white mb-1">{value}</div>
-      <div className="text-sm text-slate-600 dark:text-slate-400">{title}</div>
+      <div className="text-sm font-medium text-slate-900 dark:text-white">{title}</div>
+      {subtitle && (
+        <div className="text-xs text-slate-600 dark:text-slate-400 mt-1">{subtitle}</div>
+      )}
     </div>
   )
 }

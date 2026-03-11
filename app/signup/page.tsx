@@ -29,6 +29,20 @@ export default function SignupPage() {
       if (signUpError) {
         setError(signUpError.message)
       } else if (data.user) {
+        const { data: companyData, error: companyError } = await supabase
+          .from('companies')
+          .insert({
+            name: companyName || `${fullName}'s Company`,
+            plan: 'free',
+          })
+          .select()
+          .single()
+
+        if (companyError || !companyData) {
+          setError('Failed to create company workspace')
+          return
+        }
+
         const { error: profileError } = await supabase
           .from('profiles')
           .insert({
@@ -36,14 +50,29 @@ export default function SignupPage() {
             email: data.user.email!,
             full_name: fullName,
             company_name: companyName,
+            company_id: companyData.id,
           })
 
         if (profileError) {
           setError('Account created but profile setup failed')
-        } else {
-          router.push('/dashboard')
-          router.refresh()
+          return
         }
+
+        const { error: memberError } = await supabase
+          .from('company_members')
+          .insert({
+            company_id: companyData.id,
+            user_id: data.user.id,
+            role: 'owner',
+          })
+
+        if (memberError) {
+          setError('Failed to set user role')
+          return
+        }
+
+        router.push('/dashboard')
+        router.refresh()
       }
     } catch (err) {
       setError('An unexpected error occurred')
@@ -96,6 +125,7 @@ export default function SignupPage() {
                 type="text"
                 value={companyName}
                 onChange={(e) => setCompanyName(e.target.value)}
+                required
                 className="w-full px-4 py-2.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition text-slate-900 dark:text-white"
                 placeholder="ACME Services"
               />
