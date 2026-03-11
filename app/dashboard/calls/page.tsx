@@ -1,14 +1,14 @@
 import { createClient } from '@/lib/supabase/server'
-import { Phone, Clock, Calendar, TrendingUp } from 'lucide-react'
+import { Phone, Clock, Calendar, TrendingUp, MessageSquare, User, MapPin, Wrench, Package, DollarSign } from 'lucide-react'
 import { format } from 'date-fns'
 
-async function getCalls(userId: string) {
+async function getCalls(companyId: string) {
   const supabase = await createClient()
 
   const { data: calls } = await supabase
     .from('calls')
     .select('*')
-    .eq('user_id', userId)
+    .eq('company_id', companyId)
     .order('call_date', { ascending: false })
 
   return calls || []
@@ -22,7 +22,17 @@ export default async function CallsPage() {
     return null
   }
 
-  const calls = await getCalls(user.id)
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('company_id')
+    .eq('id', user.id)
+    .single()
+
+  if (!profile?.company_id) {
+    return null
+  }
+
+  const calls = await getCalls(profile.company_id)
 
   return (
     <div className="space-y-6">
@@ -100,7 +110,7 @@ export default async function CallsPage() {
                       </div>
                     </div>
 
-                    <div className="ml-11 space-y-2">
+                    <div className="ml-11 space-y-3">
                       <div className="flex items-center gap-4 text-sm text-slate-600 dark:text-slate-400">
                         <div className="flex items-center gap-1">
                           <Calendar className="h-4 w-4" />
@@ -110,16 +120,94 @@ export default async function CallsPage() {
                           <Clock className="h-4 w-4" />
                           {Math.floor(call.duration / 60)}m {call.duration % 60}s
                         </div>
+                        {call.ai_processed && (
+                          <span className="px-2 py-1 rounded text-xs font-medium bg-blue-100 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400">
+                            AI Analyzed
+                          </span>
+                        )}
                       </div>
 
                       {call.summary && (
-                        <p className="text-sm text-slate-700 dark:text-slate-300 mt-2">
-                          {call.summary}
-                        </p>
+                        <div className="bg-slate-50 dark:bg-slate-900 rounded-lg p-3">
+                          <div className="flex items-start gap-2 mb-2">
+                            <MessageSquare className="h-4 w-4 text-slate-600 dark:text-slate-400 mt-0.5" />
+                            <span className="text-xs font-medium text-slate-600 dark:text-slate-400">Summary</span>
+                          </div>
+                          <p className="text-sm text-slate-700 dark:text-slate-300">
+                            {call.summary}
+                          </p>
+                        </div>
+                      )}
+
+                      {call.ai_processed && (call.ai_name || call.ai_project_type || call.ai_materials) && (
+                        <div className="bg-blue-50 dark:bg-blue-900/10 rounded-lg p-3 space-y-2">
+                          <div className="text-xs font-medium text-blue-900 dark:text-blue-300 mb-2">AI Extracted Information</div>
+                          <div className="grid grid-cols-2 gap-2 text-xs">
+                            {call.ai_name && (
+                              <div className="flex items-center gap-1.5">
+                                <User className="h-3 w-3 text-blue-600 dark:text-blue-400" />
+                                <span className="text-slate-600 dark:text-slate-400">Name:</span>
+                                <span className="font-medium text-slate-900 dark:text-white">{call.ai_name}</span>
+                              </div>
+                            )}
+                            {call.ai_email && (
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-slate-600 dark:text-slate-400">Email:</span>
+                                <span className="font-medium text-slate-900 dark:text-white">{call.ai_email}</span>
+                              </div>
+                            )}
+                            {call.ai_address && (
+                              <div className="flex items-center gap-1.5">
+                                <MapPin className="h-3 w-3 text-blue-600 dark:text-blue-400" />
+                                <span className="text-slate-600 dark:text-slate-400">Location:</span>
+                                <span className="font-medium text-slate-900 dark:text-white">{call.ai_address}</span>
+                              </div>
+                            )}
+                            {call.ai_project_type && (
+                              <div className="flex items-center gap-1.5">
+                                <Wrench className="h-3 w-3 text-blue-600 dark:text-blue-400" />
+                                <span className="text-slate-600 dark:text-slate-400">Project:</span>
+                                <span className="font-medium text-slate-900 dark:text-white">{call.ai_project_type}</span>
+                              </div>
+                            )}
+                            {call.ai_materials && (
+                              <div className="flex items-center gap-1.5">
+                                <Package className="h-3 w-3 text-blue-600 dark:text-blue-400" />
+                                <span className="text-slate-600 dark:text-slate-400">Materials:</span>
+                                <span className="font-medium text-slate-900 dark:text-white">{call.ai_materials}</span>
+                              </div>
+                            )}
+                            {call.ai_timeline && (
+                              <div className="flex items-center gap-1.5">
+                                <Clock className="h-3 w-3 text-blue-600 dark:text-blue-400" />
+                                <span className="text-slate-600 dark:text-slate-400">Timeline:</span>
+                                <span className="font-medium text-slate-900 dark:text-white">{call.ai_timeline}</span>
+                              </div>
+                            )}
+                            {call.ai_budget && (
+                              <div className="flex items-center gap-1.5">
+                                <DollarSign className="h-3 w-3 text-blue-600 dark:text-blue-400" />
+                                <span className="text-slate-600 dark:text-slate-400">Budget:</span>
+                                <span className="font-medium text-slate-900 dark:text-white">{call.ai_budget}</span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
+
+                      {call.transcript && (
+                        <details className="group">
+                          <summary className="cursor-pointer text-xs text-blue-600 dark:text-blue-400 hover:underline">
+                            View Full Transcript
+                          </summary>
+                          <div className="mt-2 p-3 bg-slate-50 dark:bg-slate-900 rounded-lg text-xs text-slate-700 dark:text-slate-300 whitespace-pre-wrap">
+                            {call.transcript}
+                          </div>
+                        </details>
                       )}
 
                       {call.sentiment && (
-                        <div className="flex items-center gap-2 mt-2">
+                        <div className="flex items-center gap-2">
                           <span className="text-xs text-slate-500 dark:text-slate-400">Sentiment:</span>
                           <span className={`px-2 py-1 rounded text-xs font-medium ${
                             call.sentiment === 'positive' ? 'bg-green-100 dark:bg-green-900/20 text-green-700 dark:text-green-400' :

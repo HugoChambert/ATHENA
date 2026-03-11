@@ -16,17 +16,38 @@ export async function POST(request: NextRequest) {
 
     const supabase = await createClient()
 
-    const { error } = await supabase
+    const { data: callData, error } = await supabase
       .from('calls')
       .update({
         recording_url: recordingUrl,
         recording_sid: recordingSid,
       })
       .eq('call_sid', callSid)
+      .select('id')
+      .single()
 
     if (error) {
       console.error('Error updating call with recording:', error)
       return NextResponse.json({ error: 'Database error' }, { status: 500 })
+    }
+
+    if (callData?.id) {
+      const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+      const processUrl = `${supabaseUrl}/functions/v1/process-call-recording`
+
+      fetch(processUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY}`,
+        },
+        body: JSON.stringify({
+          callId: callData.id,
+          recordingUrl: recordingUrl,
+        }),
+      }).catch(err => {
+        console.error('Failed to trigger AI processing:', err)
+      })
     }
 
     return NextResponse.json({ success: true })
