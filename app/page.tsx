@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { Phone, TrendingUp, BarChart3, Users } from 'lucide-react'
+import { Phone, TrendingUp, ChartBar as BarChart3, Users } from 'lucide-react'
 
 export default function LandingPage() {
   return (

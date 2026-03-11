@@ -1,5 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
-import { BarChart3, TrendingUp, Phone, Users, DollarSign, Target } from 'lucide-react'
+import { ChartBar as BarChart3, TrendingUp, Phone, Users, DollarSign, Target } from 'lucide-react'
 import { startOfMonth, endOfMonth, eachDayOfInterval, format } from 'date-fns'
 
 async function getAnalytics(userId: string) {

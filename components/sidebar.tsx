@@ -2,17 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import {
-  LayoutDashboard,
-  Phone,
-  Users,
-  Workflow,
-  Calendar,
-  BarChart3,
-  Settings,
-  Menu,
-  X
-} from 'lucide-react'
+import { LayoutDashboard, Phone, Users, Workflow, Calendar, ChartBar as BarChart3, Settings, Menu, X } from 'lucide-react'
 import { useState } from 'react'
 
 const navigation = [
