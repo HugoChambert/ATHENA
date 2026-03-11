@@ -73,9 +73,18 @@ export default function LeadDetailPage() {
   const [lead, setLead] = useState<Lead | null>(null);
   const [calls, setCalls] = useState<Call[]>([]);
   const [activities, setActivities] = useState<Activity[]>([]);
+  const [appointments, setAppointments] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [newNote, setNewNote] = useState('');
   const [addingNote, setAddingNote] = useState(false);
+  const [showAppointmentForm, setShowAppointmentForm] = useState(false);
+  const [appointmentForm, setAppointmentForm] = useState({
+    title: '',
+    appointment_type: 'estimate' as 'estimate' | 'measurement' | 'installation',
+    scheduled_date: '',
+    duration_minutes: 60,
+    notes: ''
+  });
 
   const supabase = createClient();
 
@@ -99,7 +108,7 @@ export default function LeadDetailPage() {
 
       if (!memberData) return;
 
-      const [leadRes, callsRes, activitiesRes] = await Promise.all([
+      const [leadRes, callsRes, activitiesRes, appointmentsRes] = await Promise.all([
         supabase
           .from('leads')
           .select('*')
@@ -115,12 +124,18 @@ export default function LeadDetailPage() {
           .from('lead_activities')
           .select('*')
           .eq('lead_id', params.id)
-          .order('created_at', { ascending: false })
+          .order('created_at', { ascending: false }),
+        supabase
+          .from('appointments')
+          .select('*')
+          .eq('lead_id', params.id)
+          .order('start_time', { ascending: true })
       ]);
 
       if (leadRes.data) setLead(leadRes.data);
       if (callsRes.data) setCalls(callsRes.data);
       if (activitiesRes.data) setActivities(activitiesRes.data);
+      if (appointmentsRes.data) setAppointments(appointmentsRes.data);
     } catch (error) {
       console.error('Error loading lead:', error);
     } finally {
@@ -202,6 +217,65 @@ export default function LeadDetailPage() {
       console.error('Error adding note:', error);
     } finally {
       setAddingNote(false);
+    }
+  }
+
+  async function scheduleAppointment() {
+    if (!appointmentForm.title || !appointmentForm.scheduled_date || !lead) return;
+
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const { data: memberData } = await supabase
+        .from('company_members')
+        .select('company_id')
+        .eq('user_id', user.id)
+        .single();
+
+      if (!memberData) return;
+
+      const scheduledDate = new Date(appointmentForm.scheduled_date);
+      const endTime = new Date(scheduledDate.getTime() + appointmentForm.duration_minutes * 60000);
+
+      await supabase
+        .from('appointments')
+        .insert({
+          company_id: memberData.company_id,
+          lead_id: lead.id,
+          title: appointmentForm.title,
+          appointment_type: appointmentForm.appointment_type,
+          start_time: scheduledDate.toISOString(),
+          end_time: endTime.toISOString(),
+          duration_minutes: appointmentForm.duration_minutes,
+          notes: appointmentForm.notes,
+          location: lead.address,
+          created_by: user.id,
+          status: 'scheduled'
+        });
+
+      await supabase
+        .from('lead_activities')
+        .insert({
+          lead_id: lead.id,
+          company_id: memberData.company_id,
+          activity_type: 'appointment',
+          title: `${appointmentForm.appointment_type} scheduled`,
+          description: `${appointmentForm.title} scheduled for ${new Date(appointmentForm.scheduled_date).toLocaleString()}`,
+          created_by: user.id
+        });
+
+      setAppointmentForm({
+        title: '',
+        appointment_type: 'estimate',
+        scheduled_date: '',
+        duration_minutes: 60,
+        notes: ''
+      });
+      setShowAppointmentForm(false);
+      await loadLeadData();
+    } catch (error) {
+      console.error('Error scheduling appointment:', error);
     }
   }
 
@@ -409,6 +483,99 @@ export default function LeadDetailPage() {
                 </div>
               </div>
             </div>
+          </div>
+
+          <div className="bg-white rounded-lg shadow p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xl font-semibold text-gray-900">Appointments</h2>
+              <button
+                onClick={() => setShowAppointmentForm(!showAppointmentForm)}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm"
+              >
+                {showAppointmentForm ? 'Cancel' : 'Schedule'}
+              </button>
+            </div>
+
+            {showAppointmentForm && (
+              <div className="mb-4 p-4 bg-gray-50 rounded-lg space-y-3">
+                <input
+                  type="text"
+                  placeholder="Appointment title"
+                  value={appointmentForm.title}
+                  onChange={(e) => setAppointmentForm({ ...appointmentForm, title: e.target.value })}
+                  className="w-full p-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+                <select
+                  value={appointmentForm.appointment_type}
+                  onChange={(e) => setAppointmentForm({ ...appointmentForm, appointment_type: e.target.value as any })}
+                  className="w-full p-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                >
+                  <option value="estimate">Estimate</option>
+                  <option value="measurement">Measurement</option>
+                  <option value="installation">Installation</option>
+                </select>
+                <input
+                  type="datetime-local"
+                  value={appointmentForm.scheduled_date}
+                  onChange={(e) => setAppointmentForm({ ...appointmentForm, scheduled_date: e.target.value })}
+                  className="w-full p-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+                <input
+                  type="number"
+                  placeholder="Duration (minutes)"
+                  value={appointmentForm.duration_minutes}
+                  onChange={(e) => setAppointmentForm({ ...appointmentForm, duration_minutes: parseInt(e.target.value) })}
+                  className="w-full p-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+                <textarea
+                  placeholder="Notes (optional)"
+                  value={appointmentForm.notes}
+                  onChange={(e) => setAppointmentForm({ ...appointmentForm, notes: e.target.value })}
+                  className="w-full p-2 border rounded-lg resize-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  rows={2}
+                />
+                <button
+                  onClick={scheduleAppointment}
+                  disabled={!appointmentForm.title || !appointmentForm.scheduled_date}
+                  className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
+                >
+                  Schedule Appointment
+                </button>
+              </div>
+            )}
+
+            {appointments.length === 0 ? (
+              <p className="text-gray-500">No appointments scheduled</p>
+            ) : (
+              <div className="space-y-3">
+                {appointments.map((appointment) => (
+                  <div key={appointment.id} className="p-3 bg-gray-50 rounded-lg">
+                    <div className="flex items-center justify-between mb-2">
+                      <h4 className="font-medium text-gray-900">{appointment.title}</h4>
+                      <span className={`px-2 py-1 rounded text-xs font-medium ${
+                        appointment.status === 'scheduled' ? 'bg-blue-100 text-blue-800' :
+                        appointment.status === 'completed' ? 'bg-green-100 text-green-800' :
+                        appointment.status === 'cancelled' ? 'bg-red-100 text-red-800' :
+                        'bg-gray-100 text-gray-800'
+                      }`}>
+                        {appointment.status}
+                      </span>
+                    </div>
+                    <p className="text-sm text-gray-600 mb-1">
+                      {appointment.appointment_type?.charAt(0).toUpperCase() + appointment.appointment_type?.slice(1)}
+                    </p>
+                    <p className="text-sm text-gray-600">
+                      {new Date(appointment.start_time).toLocaleString()}
+                    </p>
+                    {appointment.duration_minutes && (
+                      <p className="text-xs text-gray-500 mt-1">
+                        Duration: {appointment.duration_minutes} minutes
+                      </p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
           <div className="bg-white rounded-lg shadow p-6">

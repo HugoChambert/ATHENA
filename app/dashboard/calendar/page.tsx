@@ -2,13 +2,25 @@ import { createClient } from '@/lib/supabase/server'
 import { Calendar as CalendarIcon, Clock, MapPin } from 'lucide-react'
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameMonth, isToday, isSameDay } from 'date-fns'
 
-async function getAppointments(userId: string) {
+const APPOINTMENT_TYPE_LABELS: Record<string, string> = {
+  estimate: 'Estimate',
+  measurement: 'Measurement',
+  installation: 'Installation'
+}
+
+const APPOINTMENT_TYPE_COLORS: Record<string, string> = {
+  estimate: 'bg-blue-500',
+  measurement: 'bg-orange-500',
+  installation: 'bg-green-500'
+}
+
+async function getAppointments(companyId: string) {
   const supabase = await createClient()
 
   const { data: appointments } = await supabase
     .from('appointments')
-    .select('*, leads(name)')
-    .eq('user_id', userId)
+    .select('*, leads(name, phone, email)')
+    .eq('company_id', companyId)
     .order('start_time', { ascending: true })
 
   return appointments || []
@@ -22,7 +34,17 @@ export default async function CalendarPage() {
     return null
   }
 
-  const appointments = await getAppointments(user.id)
+  const { data: memberData } = await supabase
+    .from('company_members')
+    .select('company_id')
+    .eq('user_id', user.id)
+    .single()
+
+  if (!memberData) {
+    return null
+  }
+
+  const appointments = await getAppointments(memberData.company_id)
   const now = new Date()
   const monthStart = startOfMonth(now)
   const monthEnd = endOfMonth(now)
@@ -89,7 +111,7 @@ export default async function CalendarPage() {
                       {dayAppointments.slice(0, 2).map((apt) => (
                         <div
                           key={apt.id}
-                          className="w-full h-1 rounded-full bg-blue-500 dark:bg-blue-400"
+                          className={`w-full h-1 rounded-full ${APPOINTMENT_TYPE_COLORS[apt.appointment_type] || 'bg-blue-500'}`}
                         />
                       ))}
                       {dayAppointments.length > 2 && (
@@ -117,9 +139,17 @@ export default async function CalendarPage() {
                   key={apt.id}
                   className="p-4 bg-slate-50 dark:bg-slate-900 rounded-lg"
                 >
-                  <h4 className="font-medium text-slate-900 dark:text-white mb-2">
-                    {apt.title}
-                  </h4>
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className={`w-3 h-3 rounded-full ${APPOINTMENT_TYPE_COLORS[apt.appointment_type] || 'bg-blue-500'}`} />
+                    <h4 className="font-medium text-slate-900 dark:text-white">
+                      {apt.title}
+                    </h4>
+                  </div>
+                  {apt.appointment_type && (
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mb-2">
+                      {APPOINTMENT_TYPE_LABELS[apt.appointment_type]}
+                    </p>
+                  )}
                   {apt.leads && (
                     <p className="text-sm text-slate-600 dark:text-slate-400 mb-2">
                       {apt.leads.name}
@@ -132,7 +162,8 @@ export default async function CalendarPage() {
                     </div>
                     <div className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-400">
                       <Clock className="h-4 w-4" />
-                      {format(new Date(apt.start_time), 'h:mm a')} - {format(new Date(apt.end_time), 'h:mm a')}
+                      {format(new Date(apt.start_time), 'h:mm a')}
+                      {apt.duration_minutes && ` (${apt.duration_minutes} min)`}
                     </div>
                     {apt.location && (
                       <div className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-400">
@@ -166,12 +197,25 @@ export default async function CalendarPage() {
               <div key={apt.id} className="p-6 hover:bg-slate-50 dark:hover:bg-slate-900 transition-colors">
                 <div className="flex items-start justify-between">
                   <div className="flex-1">
-                    <h3 className="font-semibold text-slate-900 dark:text-white mb-2">
-                      {apt.title}
-                    </h3>
-                    {apt.description && (
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className={`w-3 h-3 rounded-full ${APPOINTMENT_TYPE_COLORS[apt.appointment_type] || 'bg-blue-500'}`} />
+                      <h3 className="font-semibold text-slate-900 dark:text-white">
+                        {apt.title}
+                      </h3>
+                    </div>
+                    {apt.appointment_type && (
+                      <p className="text-xs text-slate-500 dark:text-slate-400 mb-2">
+                        {APPOINTMENT_TYPE_LABELS[apt.appointment_type]}
+                      </p>
+                    )}
+                    {apt.leads && (
+                      <p className="text-sm text-slate-600 dark:text-slate-400 mb-2">
+                        {apt.leads.name}
+                      </p>
+                    )}
+                    {apt.notes && (
                       <p className="text-sm text-slate-600 dark:text-slate-400 mb-3">
-                        {apt.description}
+                        {apt.notes}
                       </p>
                     )}
                     <div className="flex flex-wrap items-center gap-4 text-sm text-slate-600 dark:text-slate-400">
@@ -181,7 +225,8 @@ export default async function CalendarPage() {
                       </div>
                       <div className="flex items-center gap-1">
                         <Clock className="h-4 w-4" />
-                        {format(new Date(apt.start_time), 'h:mm a')} - {format(new Date(apt.end_time), 'h:mm a')}
+                        {format(new Date(apt.start_time), 'h:mm a')}
+                        {apt.duration_minutes && ` (${apt.duration_minutes} min)`}
                       </div>
                       {apt.location && (
                         <div className="flex items-center gap-1">
@@ -194,6 +239,7 @@ export default async function CalendarPage() {
                   <span className={`px-3 py-1 rounded-full text-xs font-medium ${
                     apt.status === 'scheduled' ? 'bg-blue-100 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400' :
                     apt.status === 'completed' ? 'bg-green-100 dark:bg-green-900/20 text-green-700 dark:text-green-400' :
+                    apt.status === 'cancelled' ? 'bg-red-100 dark:bg-red-900/20 text-red-700 dark:text-red-400' :
                     'bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300'
                   }`}>
                     {apt.status}

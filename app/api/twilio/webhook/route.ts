@@ -59,7 +59,7 @@ export async function POST(request: NextRequest) {
       const duration = parseInt(callDuration) || 0
       const status = duration > 0 ? 'answered' : 'missed'
 
-      const { error } = await supabase
+      const { data: callData, error: updateError } = await supabase
         .from('calls')
         .update({
           status,
@@ -67,9 +67,66 @@ export async function POST(request: NextRequest) {
           recording_url: recordingUrl,
         })
         .eq('call_sid', callSid)
+        .select('id, company_id')
+        .single()
 
-      if (error) {
-        console.error('Error updating call record:', error)
+      if (updateError) {
+        console.error('Error updating call record:', updateError)
+      }
+
+      if (status === 'missed' && callData) {
+        const { data: companyData } = await supabase
+          .from('companies')
+          .select('twilio_account_sid, twilio_auth_token, twilio_phone_number')
+          .eq('id', callData.company_id)
+          .single()
+
+        if (companyData?.twilio_account_sid && companyData?.twilio_auth_token) {
+          try {
+            const twilioUrl = `https://api.twilio.com/2010-04-01/Accounts/${companyData.twilio_account_sid}/Messages.json`
+            const message = 'Hi, sorry we missed your call. How can we help with your project?'
+
+            const twilioResponse = await fetch(twilioUrl, {
+              method: 'POST',
+              headers: {
+                'Authorization': 'Basic ' + Buffer.from(`${companyData.twilio_account_sid}:${companyData.twilio_auth_token}`).toString('base64'),
+                'Content-Type': 'application/x-www-form-urlencoded',
+              },
+              body: new URLSearchParams({
+                To: from,
+                From: companyData.twilio_phone_number,
+                Body: message,
+              }),
+            })
+
+            const twilioData = await twilioResponse.json()
+
+            if (twilioData.sid) {
+              const { data: leadData } = await supabase
+                .from('leads')
+                .select('id')
+                .eq('phone', from)
+                .eq('company_id', callData.company_id)
+                .maybeSingle()
+
+              await supabase
+                .from('sms_messages')
+                .insert({
+                  company_id: callData.company_id,
+                  lead_id: leadData?.id || null,
+                  call_id: callData.id,
+                  message_sid: twilioData.sid,
+                  from_number: companyData.twilio_phone_number,
+                  to_number: from,
+                  body: message,
+                  direction: 'outbound',
+                  status: twilioData.status || 'sent',
+                })
+            }
+          } catch (smsError) {
+            console.error('Error sending missed call SMS:', smsError)
+          }
+        }
       }
     }
 
