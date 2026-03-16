@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
-import { Phone, Users, TrendingUp, Calendar, PhoneIncoming, PhoneMissed, Clock, DollarSign } from 'lucide-react'
+import { Phone, Users, TrendingUp, Calendar, PhoneIncoming, PhoneMissed, Clock, DollarSign, TriangleAlert as AlertTriangle } from 'lucide-react'
+import Link from 'next/link'
 
 async function getDashboardStats(companyId: string) {
   const supabase = await createClient()
@@ -86,10 +87,40 @@ export default async function DashboardPage() {
     return null
   }
 
+  const { data: subscription } = await supabase
+    .from('subscriptions')
+    .select('*')
+    .eq('user_id', user.id)
+    .maybeSingle()
+
+  const hasActiveSubscription = subscription && ['active', 'trialing'].includes(subscription.status)
+
   const stats = await getDashboardStats(profile.company_id)
 
   return (
     <div className="space-y-8">
+      {!hasActiveSubscription && (
+        <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-xl p-4">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="h-5 w-5 text-yellow-600 dark:text-yellow-400 mt-0.5" />
+            <div className="flex-1">
+              <h3 className="text-sm font-semibold text-yellow-900 dark:text-yellow-200">
+                Subscription Required
+              </h3>
+              <p className="text-sm text-yellow-800 dark:text-yellow-300 mt-1">
+                Your subscription is {subscription?.status || 'inactive'}. Please complete your subscription to continue using all features.
+              </p>
+              <Link
+                href="/dashboard/settings"
+                className="inline-block mt-3 px-4 py-2 bg-yellow-600 hover:bg-yellow-700 text-white text-sm font-medium rounded-lg transition"
+              >
+                Manage Subscription
+              </Link>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div>
         <h1 className="text-3xl font-bold text-slate-900 dark:text-white">Dashboard</h1>
         <p className="text-slate-600 dark:text-slate-400 mt-2">

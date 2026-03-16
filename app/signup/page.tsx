@@ -28,55 +28,104 @@ export default function SignupPage() {
 
       if (signUpError) {
         setError(signUpError.message)
-      } else if (data.user) {
-        const { data: companyData, error: companyError } = await supabase
-          .from('companies')
-          .insert({
-            name: companyName || `${fullName}'s Company`,
-            plan: 'free',
-          })
-          .select()
-          .single()
+        setLoading(false)
+        return
+      }
 
-        if (companyError || !companyData) {
-          setError('Failed to create company workspace')
-          return
+      if (!data.user) {
+        setError('Failed to create account')
+        setLoading(false)
+        return
+      }
+
+      const { data: companyData, error: companyError } = await supabase
+        .from('companies')
+        .insert({
+          name: companyName || `${fullName}'s Company`,
+          plan: 'free',
+        })
+        .select()
+        .single()
+
+      if (companyError || !companyData) {
+        setError('Failed to create company workspace')
+        setLoading(false)
+        return
+      }
+
+      const { error: profileError } = await supabase
+        .from('profiles')
+        .insert({
+          id: data.user.id,
+          email: data.user.email!,
+          full_name: fullName,
+          company_name: companyName,
+          company_id: companyData.id,
+        })
+
+      if (profileError) {
+        setError('Account created but profile setup failed')
+        setLoading(false)
+        return
+      }
+
+      const { error: memberError } = await supabase
+        .from('company_members')
+        .insert({
+          company_id: companyData.id,
+          user_id: data.user.id,
+          role: 'owner',
+        })
+
+      if (memberError) {
+        setError('Failed to set user role')
+        setLoading(false)
+        return
+      }
+
+      const { data: sessionData } = await supabase.auth.getSession()
+      if (!sessionData?.session) {
+        setError('Failed to create session')
+        setLoading(false)
+        return
+      }
+
+      const priceId = process.env.NEXT_PUBLIC_STRIPE_PRICE_ID || 'price_1234567890'
+
+      const checkoutResponse = await fetch(
+        `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/stripe-checkout`,
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${sessionData.session.access_token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            email: data.user.email,
+            priceId: priceId,
+            successUrl: `${window.location.origin}/dashboard?payment=success`,
+            cancelUrl: `${window.location.origin}/signup?payment=cancelled`,
+          }),
         }
+      )
 
-        const { error: profileError } = await supabase
-          .from('profiles')
-          .insert({
-            id: data.user.id,
-            email: data.user.email!,
-            full_name: fullName,
-            company_name: companyName,
-            company_id: companyData.id,
-          })
+      if (!checkoutResponse.ok) {
+        const errorData = await checkoutResponse.json()
+        setError(`Payment setup failed: ${errorData.error}`)
+        setLoading(false)
+        return
+      }
 
-        if (profileError) {
-          setError('Account created but profile setup failed')
-          return
-        }
+      const { url } = await checkoutResponse.json()
 
-        const { error: memberError } = await supabase
-          .from('company_members')
-          .insert({
-            company_id: companyData.id,
-            user_id: data.user.id,
-            role: 'owner',
-          })
-
-        if (memberError) {
-          setError('Failed to set user role')
-          return
-        }
-
-        router.push('/dashboard')
-        router.refresh()
+      if (url) {
+        window.location.href = url
+      } else {
+        setError('Failed to redirect to payment')
+        setLoading(false)
       }
     } catch (err) {
       setError('An unexpected error occurred')
-    } finally {
       setLoading(false)
     }
   }

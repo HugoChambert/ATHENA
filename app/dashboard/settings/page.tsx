@@ -2,12 +2,13 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { User, Building, Phone, Mail, Key, Users as UsersIcon } from 'lucide-react'
+import { User, Building, Phone, Mail, Key, Users as UsersIcon, CreditCard } from 'lucide-react'
 
 export default function SettingsPage() {
   const supabase = createClient()
   const [profile, setProfile] = useState<any>(null)
   const [company, setCompany] = useState<any>(null)
+  const [subscription, setSubscription] = useState<any>(null)
   const [role, setRole] = useState<string>('')
   const [twilioPhone, setTwilioPhone] = useState('')
   const [twilioSid, setTwilioSid] = useState('')
@@ -30,6 +31,14 @@ export default function SettingsPage() {
       .single()
 
     setProfile(profileData)
+
+    const { data: subscriptionData } = await supabase
+      .from('subscriptions')
+      .select('*')
+      .eq('user_id', user.id)
+      .maybeSingle()
+
+    setSubscription(subscriptionData)
 
     if (profileData?.company_id) {
       const { data: companyData } = await supabase
@@ -287,14 +296,31 @@ export default function SettingsPage() {
 
         <div className="space-y-6">
           <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 p-6">
-            <h3 className="text-lg font-semibold text-slate-900 dark:text-white mb-4">Account</h3>
+            <div className="flex items-center gap-2 mb-4">
+              <CreditCard className="h-5 w-5 text-slate-600 dark:text-slate-400" />
+              <h3 className="text-lg font-semibold text-slate-900 dark:text-white">Subscription</h3>
+            </div>
             <div className="space-y-3">
               <div className="text-sm">
-                <span className="text-slate-600 dark:text-slate-400">Plan:</span>
-                <span className="ml-2 font-medium text-slate-900 dark:text-white capitalize">
-                  {company?.plan || 'Free'}
+                <span className="text-slate-600 dark:text-slate-400">Status:</span>
+                <span className={`ml-2 px-2 py-1 rounded-full text-xs font-medium ${
+                  subscription?.status === 'active' || subscription?.status === 'trialing'
+                    ? 'bg-green-100 dark:bg-green-900/20 text-green-700 dark:text-green-400'
+                    : subscription?.status === 'past_due'
+                    ? 'bg-yellow-100 dark:bg-yellow-900/20 text-yellow-700 dark:text-yellow-400'
+                    : 'bg-red-100 dark:bg-red-900/20 text-red-700 dark:text-red-400'
+                }`}>
+                  {subscription?.status || 'No active subscription'}
                 </span>
               </div>
+              {subscription?.current_period_end && (
+                <div className="text-sm">
+                  <span className="text-slate-600 dark:text-slate-400">Renews:</span>
+                  <span className="ml-2 font-medium text-slate-900 dark:text-white">
+                    {new Date(subscription.current_period_end).toLocaleDateString()}
+                  </span>
+                </div>
+              )}
               <div className="text-sm">
                 <span className="text-slate-600 dark:text-slate-400">Company ID:</span>
                 <span className="ml-2 font-mono text-xs text-slate-900 dark:text-white">
@@ -302,19 +328,61 @@ export default function SettingsPage() {
                 </span>
               </div>
             </div>
+            {subscription?.stripe_customer_id && (
+              <div className="mt-4 pt-4 border-t border-slate-200 dark:border-slate-700">
+                <a
+                  href="https://billing.stripe.com/p/login"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-sm text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 font-medium"
+                >
+                  Manage billing
+                </a>
+              </div>
+            )}
           </div>
 
-          <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-xl p-6">
-            <h3 className="font-semibold text-blue-900 dark:text-blue-300 mb-2">
-              Upgrade to Pro
-            </h3>
-            <p className="text-sm text-blue-700 dark:text-blue-400 mb-4">
-              Get unlimited calls, advanced analytics, and priority support
-            </p>
-            <button className="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 rounded-lg transition duration-200">
-              Upgrade Now
-            </button>
-          </div>
+          {(!subscription || !['active', 'trialing'].includes(subscription?.status)) && (
+            <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-xl p-6">
+              <h3 className="font-semibold text-blue-900 dark:text-blue-300 mb-2">
+                Subscribe Now
+              </h3>
+              <p className="text-sm text-blue-700 dark:text-blue-400 mb-4">
+                Get unlimited calls, advanced analytics, and priority support with CallFlow AI
+              </p>
+              <button
+                onClick={async () => {
+                  const { data: sessionData } = await supabase.auth.getSession()
+                  if (!sessionData?.session) return
+
+                  const priceId = process.env.NEXT_PUBLIC_STRIPE_PRICE_ID || 'price_1234567890'
+
+                  const response = await fetch(
+                    `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/stripe-checkout`,
+                    {
+                      method: 'POST',
+                      headers: {
+                        'Authorization': `Bearer ${sessionData.session.access_token}`,
+                        'Content-Type': 'application/json',
+                      },
+                      body: JSON.stringify({
+                        email: profile?.email,
+                        priceId: priceId,
+                        successUrl: `${window.location.origin}/dashboard/settings?payment=success`,
+                        cancelUrl: `${window.location.origin}/dashboard/settings?payment=cancelled`,
+                      }),
+                    }
+                  )
+
+                  const { url } = await response.json()
+                  if (url) window.location.href = url
+                }}
+                className="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 rounded-lg transition duration-200"
+              >
+                Subscribe Now
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </div>
