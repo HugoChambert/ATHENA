@@ -2,8 +2,8 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>qwen // local chat</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>ATHENA</title>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -11,7 +11,7 @@
 <header>
   <div class="title">ATHENA</div>
   <div class="controls">
-    <input id="host" type="text" value="http://localhost:11434" size="24" title="Ollama host">
+    <input id="host" type="text" value="http://localhost:11434" autocomplete="off" autocapitalize="off" spellcheck="false" title="Ollama host">
     <select id="model">
       <option value="qwen2.5-coder">qwen2.5-coder</option>
       <option value="qwen2.5-coder:7b">qwen2.5-coder:7b</option>
@@ -27,7 +27,7 @@
 </div>
 
 <form id="form">
-  <textarea id="input" placeholder="Type a message… (Enter to send, Shift+Enter for newline)"></textarea>
+  <textarea id="input" rows="1" enterkeyhint="send" placeholder="Type a message… (Enter to send, Shift+Enter for newline)"></textarea>
   <button id="send" type="submit">Send</button>
 </form>
 
@@ -49,7 +49,7 @@ function addMessage(role, text){
   wrap.className = 'msg ' + role;
   const roleLabel = document.createElement('div');
   roleLabel.className = 'role ' + (role === 'user' ? 'you' : 'model');
-  roleLabel.textContent = role === 'user' ? 'you' : modelEl.value;
+  roleLabel.textContent = role === 'user' ? 'YOU' : 'ATHENA';
   const bubble = document.createElement('div');
   bubble.className = 'bubble';
   bubble.textContent = text;
